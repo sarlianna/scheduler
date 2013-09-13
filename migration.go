@@ -1,4 +1,4 @@
-package Scheduler 
+package scheduler 
 
 import (
   "fmt"
@@ -14,7 +14,7 @@ func main() {
   }
 
 
-  _, err := db.Exec( "CREATE TABLE users ( ID UUID PRIMARY KEY, " +
+  _, err = db.Exec( "CREATE TABLE users ( ID UUID PRIMARY KEY, " +
                                       "username varchar," +
                                       "password varchar," +
                                       "salt varchar )" )
