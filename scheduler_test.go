@@ -19,46 +19,40 @@ func TestCreateSchedule (t *testing.T) {
 func TestCreateSpan (t *testing.T) {
 
   gm := GenManager{}
-  tdb,err := sql.Open("postgres", "user=postgres dbname=schedulertest")//foregoing Init() in order to point it at test table
+  tdb,err := sql.Open("postgres", "user=postgres dbname=schedulertest sslmode=disable")//foregoing Init() in order to point it at test table
 
   if err != nil {
-    t.Log("DB initialization error:" + err + ".\nSkipping test.")
-    t.Skip()
+    t.Errorf("DB initialization error:%s.\n", err)
   }
 
   gm.db = tdb
-  const start, end = time.Now().String, time.Now().String()
+  start, end := time.Now(), time.Now()
   
   res, err := gm.Create( TypeSpan, start, end )
   if err != nil {
     t.Error("Error returned: ", err)
   }
 
-  span := res.(Span)
-  if !strings.EqualFold(span.start,start) || !strings.EqualFold(span.end, end) {
-    t.Errorf("Span start:%s, end:%s. \nExpected start:%s, end:%s.", span.start, span.end, start, end)
+  span := Span(res.(Span))
+  if !span.Start.Equal(start) || !span.End.Equal(end) {
+    t.Errorf("Span start:%s, end:%s. \nExpected start:%s, end:%s.", span.Start, span.End, start, end)
   }
 
-  row, queryErr := tdb.QueryRow("SELECT (ID, start, end) from spans WHERE ID=" + span.ID)
+  row := tdb.QueryRow("SELECT (span_id, start_time, end_time) from spans WHERE ID=" + span.ID)
 
-  if queryErr != nil {
-    t.Log("DB Query error:" + queryErr + ".\nSkipping test.")
-    t.Skip()
-  }
-
-  var id,outstart,outend string
+  var id string
+  var outstart, outend time.Time
   scanErr := row.Scan(&id, &outstart, &outend)
   
   if scanErr != nil {
     if scanErr == sql.ErrNoRows {
-      t.Error("No rows with ID given by CreateSpan were found in the database.")
+      t.Error("No rows with span_id given by CreateSpan were found in the database.")
     }
-    t.Log("Row scan error:" + scanErr + ".\nSkipping test.")
-    t.Skip()
+    t.Errorf("Row scan error:%s.\n", scanErr)
   }
 
-  if !strings.EqualFold(start, outstort) || 
-     !strings.EqualFold(end,outend) || 
+  if !start.Equal(outstart) || 
+     !end.Equal(outend) || 
      !strings.EqualFold(id,span.ID) {
     t.Errorf("DB values - id:%s, start:%s, end:%s. \nExpected - id:%s, start: %s, end:%s.",
                 id, outstart, outend, span.ID, start, end)

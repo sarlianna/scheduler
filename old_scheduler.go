@@ -1,5 +1,7 @@
+/* outdated code that is being rewritten.
+
 package scheduler
-/*
+
 import (
   "time"
   "database/sql"
@@ -411,5 +413,4 @@ func (sm SManager) Del( sType int, id string ) error {
 
   return nil
 }
-
 */

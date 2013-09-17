@@ -3,10 +3,11 @@ package scheduler
 import (
   _ "github.com/lib/pq"
   "strings"
-  //"time"
+  "time"
   "database/sql"
   "code.google.com/p/go-uuid/uuid"
   "errors"
+  "fmt"
 )
 
 /* planning:
@@ -24,11 +25,13 @@ import (
   types: groups, users, schedules, spans.
 */
 
+//Using prepared sql statements stops SQL injection attacks.  Recommendable?
+
 const (
   TypeSchedule = iota
   TypeUser
-  TypeGroups
-  TypeSpans
+  TypeGroup
+  TypeSpan
 )
 
 type Manager interface {
@@ -67,8 +70,8 @@ type Group struct {
 type Span struct {
 
   ID    string
-  Start string
-  End   string
+  Start time.Time
+  End   time.Time
 }
 
 type GenManager struct {
@@ -156,7 +159,7 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
       }
       return createUser( gm.db, username, pass, salt, schedules, groups )
 
-    case TypeGroups:
+    case TypeGroup:
       var users, schedules  []string
       switch args[0].(type) {
         case string:
@@ -174,17 +177,17 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
       }
       return createGroup( gm.db, users, schedules )
 
-    case TypeSpans:
-      var start, end string
+    case TypeSpan:
+      var start, end time.Time
       switch args[0].(type) {
-        case string:
-          start = args[0].(string)
+        case time.Time:
+          start = args[0].(time.Time)
         default:
           return nil, errors.New("Invalid arguments to be passed to createSpan.")
       }
       switch args[1].(type) {
-        case string:
-          end = args[1].(string)
+        case time.Time:
+          end = args[1].(time.Time)
         default:
           return nil, errors.New("Invalid arguments to be passed to createSpan.")
       }
@@ -202,9 +205,9 @@ func createSchedule( db *sql.DB, user string, dates []string ) (Schedule, error)
   id := uuid.New()
   var err error
   if strings.EqualFold(user,"") {
-    res, err := db.Query("INSERT INTO schedules (ID, user) VALUES (" + id + ", " + user + ")" )
+    _, err = db.Query("INSERT INTO schedules (schedule_id, user_id) VALUES (" + id + ", " + user + ")" )
   } else {
-    res, err := db.Query("INSERT INTO schedules (ID) VALUES (" + id + ")" )
+    _, err = db.Query("INSERT INTO schedules (schedule_id) VALUES (" + id + ")" )
   }
 
   if err != nil {
@@ -229,15 +232,19 @@ func createGroup( db *sql.DB, users []string, schedules []string ) (Group, error
   return Group{}, nil
 }
 
-func createSpan( db *sql.DB,  start string, end string ) (Span, error) {
+func createSpan( db *sql.DB,  start time.Time, end time.Time ) (Span, error) {
   
-  if strings.EqualFold(start,"") && strings.EqualFold(end,"") {
-    return Span{}, errors.New("Span creation requires start and end date")
-  }
   //check that start and end are proper timestamps?
    
   id := uuid.New();
-  res, err := db.Query("INSERT INTO spans (ID, start, end) VALUES (" + id + ", " + start + ", " + end + ")" )
+  stmt, sterr := db.Prepare("INSERT INTO spans (span_id, start_time, end_time) VALUES (?, ?, ?)") //is this really good practice?
+  if sterr != nil {
+    fmt.Println("Prepare statement failed.")
+    return Span{}, sterr
+  }
+  fmt.Println("Values: " + id + start.String() + end.String() )
+  _, err := stmt.Exec(id, start, end)
+  //_, err := db.Exec("INSERT INTO spans (span_id, start_time, end_time) VALUES ('?', ?, ?)", id  ,start, end )
 
   if err != nil {
     return Span{}, err 
@@ -245,5 +252,4 @@ func createSpan( db *sql.DB,  start string, end string ) (Span, error) {
 
   return Span{ ID: id, Start: start, End: end }, nil
 }
-
 
