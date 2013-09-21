@@ -1,7 +1,6 @@
-/* outdated code that is being rewritten.
-
 package scheduler
 
+/* outdated code that is being rewritten.
 import (
   "time"
   "database/sql"
