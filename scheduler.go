@@ -8,6 +8,7 @@ import (
   "code.google.com/p/go-uuid/uuid"
   "errors"
   "fmt"
+  "strconv"
 )
 
 /* planning:
@@ -161,7 +162,7 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
 
     case TypeGroup:
       var title, description string
-      var users, schedules  []string
+      var schedules  []string
       switch args[0].(type) {
         case string:
           title = args[0].(string)
@@ -205,9 +206,9 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
   }
 }
 
-func (GenManager gm) Read( otype int, size int, offset int, id string) (interface{}, error) {
+func (gm GenManager) Read( otype int, size int, offset int, id string) (interface{}, error) {
 
-  if num < 0 || offset < 0 {
+  if size < 0 || offset < 0 {
     return nil, errors.New("Invalid size or offset value.")
   }
   switch otype {
@@ -224,22 +225,24 @@ func (GenManager gm) Read( otype int, size int, offset int, id string) (interfac
   }
 }
 
-func (GenManager gm) Update( otype int, args...interface{}) (interface{}, error) {
+func (gm GenManager) Update( otype int, args...interface{}) (interface{}, error) {
 
+  return nil, nil
 
 }
 
-func (GenManager gm) Delete( otype int, id string) (error) {
+func (gm GenManager) Delete( otype int, id string) (error) {
 
+  var err error
   switch otype {
     case TypeSchedule:
-      _, err := gm.db.Query("DELETE FROM schedules WHERE id=?", id)
+      _, err = gm.db.Query("DELETE FROM schedules WHERE id=?", id)
     case TypeUser:
-      _, err := gm.db.Query("DELETE FROM users WHERE id=?", id)
+      _, err = gm.db.Query("DELETE FROM users WHERE id=?", id)
     case TypeGroup:
-      _, err := gm.db.Query("DELETE FROM groups WHERE id=?", id)
+      _, err = gm.db.Query("DELETE FROM groups WHERE id=?", id)
     case TypeSpan:
-      _, err := gm.db.Query("DELETE FROM spans WHERE id=?", id)
+      _, err = gm.db.Query("DELETE FROM spans WHERE id=?", id)
     default:
       return errors.New("Invalid type passed to GenManager.Delete.")
   }
@@ -256,8 +259,9 @@ func createSchedule( db *sql.DB, user string, dates []string ) (Schedule, error)
     //seperate query?
   }
   id := uuid.New()
+  var err error
   if strings.EqualFold(user,"") {
-    _, err := db.Query("INSERT INTO schedules (schedule_id, user_id) VALUES (" + id + ", " + user + ")" )
+    _, err = db.Query("INSERT INTO schedules (schedule_id, user_id) VALUES (" + id + ", " + user + ")" )
   } else {
     _, err = db.Query("INSERT INTO schedules (schedule_id) VALUES (" + id + ")" )
   }
@@ -335,18 +339,26 @@ func createSpan( db *sql.DB,  start time.Time, end time.Time ) (Span, error) {
 func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, error) {
 
   if strings.EqualFold(id, "") {
-    rows, err := db.Query("SELECT a.schedule_id, a.user_id, b.span_id, b.start_time, b.end_time FROM schedules a, spans b OFFSET "
-                            + offset + " LIMIT " + num )
-
-    ret := make([]Schedule)
-    for i := 0; rows.Next(); i++ {
-      //one loop isn't enough - we need to fill schedules, and for each schedule, fill every span.
+    rows, err := db.Query("SELECT a.schedule_id, a.user_id, b.span_id, b.start_time, b.end_time FROM schedules a, spans b OFFSET " +
+                            strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num) )
+    if err != nil {
+      return nil, err
     }
 
 
+    ret := make([]Schedule, 1)
+    for i := 0; rows.Next(); i++ {
+      //one loop isn't enough - we need to fill schedules, and for each schedule, fill every span.
+    }
+    
+    return ret, nil
+
   } else {
 
+    //get by id
   }
+
+  return nil, nil
 }
 
 func readUser(db *sql.DB, num int, offset int, id string ) ([]User, error) {
@@ -356,17 +368,24 @@ func readUser(db *sql.DB, num int, offset int, id string ) ([]User, error) {
             "schedule.schedule_id, schedule.user_id, span.span_id, " +
             "span.start_time, span.end_time " +
             "FROM users user, schedules schedule, spans span " +
-            "OFFSET " + offset + " LIMIT " + num
+            "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num)
     rows, err := db.Query(query)
+    if err != nil {
+      return nil, err
+    }
 
-    ret := make( []User )
+
+    ret := make( []User, 1 )
     for i:=0; rows.Next(); i++ {
       //
     }
+
+    return ret, nil
   } else {
 
   }
 
+  return nil, nil
 }
 
 func readGroup(db *sql.DB, num int, offset int, id string ) ([]Group, error) {
@@ -376,28 +395,37 @@ func readGroup(db *sql.DB, num int, offset int, id string ) ([]Group, error) {
              "schedule.schedule_id, schedule.user_id, span.span_id, " +
              "span.start_time, span.end_time " +
              "FROM groups group, schedules schedule, spans span " +
-             "OFFSET " + offset + " LIMIT " + num
+             "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num)
     rows, err := db.Query(query)
+    if err != nil {
+      return nil, err
+    }
 
-    ret := make( []Group )
+    ret := make( []Group, 1 )
     for i:=0; rows.Next(); i++ {
       //
     }
 
+    return ret, nil
   } else {
 
   }
  
 
+  return nil, nil
 }
 
 func readSpan(db *sql.DB, num int, offset int, id string ) ([]Span, error) {
 
   if strings.EqualFold(id, "") {
-    query := "SELECT span_id, start_time, end_time FROM spans OFFSET " + offset + " LIMIT " + num
+    query := "SELECT span_id, start_time, end_time FROM spans OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num)
     rows, err := db.Query(query)
 
-    ret := make([]Span)
+    if err != nil {
+      return nil, err
+    }
+
+    ret := make([]Span, 1)
     for i:=0; rows.Next(); i++ {
       cur := Span{}
       scanerr := rows.Scan(&cur.ID, &cur.Start, &cur.End)
@@ -412,7 +440,7 @@ func readSpan(db *sql.DB, num int, offset int, id string ) ([]Span, error) {
   } else {
     //lookup by id
     result := Span{}
-    err := db.Query("SELECT span_id, start_time, end_time FROM spans WHERE span_id=" + id).Scan(&result.ID, &result.Start, &result.End)
+    err := db.QueryRow("SELECT span_id, start_time, end_time FROM spans WHERE span_id=" + id).Scan(&result.ID, &result.Start, &result.End)
     if err != nil {
       return nil, err
     }
