@@ -60,8 +60,8 @@ type Manager interface {
 
 type Schedule struct {
 
-  ID    string
-  User  *User
+  ID     string
+  UserID string
   //Dates []*Span 
   //Group *Group
 }
@@ -107,20 +107,12 @@ func (gm GenManager) Init() error {
 }
 
 func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error) {
-  //this whole method is not very DRY, please rewrite when possible
-
-  //alternatives:
-  //instead of case-specific type switches and fills, I could do one general one here.
-  //This would mean that the functions the arguments are passed to will also have to 
-  //check the arguments to make sure they make sense.
-  //For now I do a case specific type-fill and allow the private functions to trust
-  //the data passed to them, as only this method should ever call them.
-  //additional argument verification should be done here.
-
-  //I think the first alternative might be better....
-  
-  //unsure that a type assertion is needed inside a type switch; not sure I'm doing this correctly.
-
+  //you shouldn't need to pass an enumerated type at all: just type assert the arguments
+  //this may have issues if methods end up having the same number and type of argument though
+  //maybe better to have this
+  //TODO: allow a pointer to an already existing object to be passed and used.
+  //TODO: rewrite this method
+    
   switch otype {
 
     case TypeSchedule:
@@ -141,7 +133,6 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
 
     case TypeUser:
       var username, pass, salt string
-      var schedules, groups []string
 
       switch args[0].(type) {
         case string:
@@ -161,23 +152,11 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
         default:
           return nil, errors.New("Invalid arguments to be passed to createSchedule.")
       }
-      switch args[3].(type) {
-        case []string:
-          schedules = args[3].([]string)
-        default:
-          return nil, errors.New("Invalid arguments to be passed to createSchedule.")
-      }
-      switch args[4].(type) {
-        case []string:
-          groups = args[4].([]string)
-        default:
-          return nil, errors.New("Invalid arguments to be passed to createSchedule.")
-      }
-      return createUser( gm.db, username, pass, salt, schedules, groups )
+ 
+      return createUser( gm.db, username, pass, salt)
 
     case TypeGroup:
       var title, description string
-      var schedules  []string
       switch args[0].(type) {
         case string:
           title = args[0].(string)
@@ -192,14 +171,7 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
           return nil, errors.New("Invalid arguments to be passed to createGroup.")
 
       }
-      switch args[2].(type) {
-        case []string:
-          schedules = args[1].([]string)
-        default:
-          return nil, errors.New("Invalid arguments to be passed to createGroup.")
-
-      }
-      return createGroup( gm.db, title, description, schedules )
+      return createGroup( gm.db, title, description)
 
     case TypeSpan:
       var start, end time.Time
@@ -290,8 +262,7 @@ func createSchedule( db *sql.DB, user string, group string) (Schedule, error) {
 
 }
 
-func createUser( db *sql.DB,  user string, pass string, salt string,
-                 schedules []string, groups []string )   (User, error) {
+func createUser( db *sql.DB,  user string, pass string, salt string)   (User, error) {
 
   id := uuid.New()
 
@@ -303,7 +274,7 @@ func createUser( db *sql.DB,  user string, pass string, salt string,
   return User{ID: id, Username: user, Password: pass, Salt: salt}, nil 
 }
 
-func createGroup( db *sql.DB, title string, description string, schedules []string ) (Group, error) {
+func createGroup( db *sql.DB, title string, description string ) (Group, error) {
 
   id := uuid.New()
 
@@ -341,8 +312,7 @@ func createSpan( db *sql.DB,  start time.Time, end time.Time ) (Span, error) {
 func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, error) {
 
   if strings.EqualFold(id, "") {
-    rows, err := db.Query("SELECT sch.schedule_id, sch.user_id, user.username, user.password, user.salt " + 
-                            "FROM schedules sch, users user WHERE user.user_id = sch.user_id " + 
+    rows, err := db.Query("SELECT sch.schedule_id, sch.user_id FROM schedules " + 
                             "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num) )
     if err != nil {
       return nil, err
@@ -351,7 +321,7 @@ func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, erro
 
     ret := make([]Schedule, 1)
     for i := 0; rows.Next(); i++ {
-      scanerr := rows.Scan( &ret[i].ID, &ret[i].User.ID, &ret[i].User.Username, &ret[i].User.Password, &ret[i].User.Salt )
+      scanerr := rows.Scan( &ret[i].ID, &ret[i].UserID)
       if scanerr != nil {
         return nil, scanerr
       }
@@ -363,10 +333,7 @@ func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, erro
 
     //get by id
     result := Schedule{}
-    err := db.QueryRow("SELECT sche.schedule_id, sch.user_id, user.username, user.password, user.salt " + 
-                        "FROM spans WHERE sch.schedule_id=" + id + 
-                        " AND user.user_id = sch.user_id").Scan(&result.ID, &result.User.ID, &result.User.Username, 
-                          &result.User.Password, &result.User.Salt )
+    err := db.QueryRow("SELECT schedule_id, user_id FROM schedules WHERE sch.schedule_id=" + id ).Scan(&result.ID, &result.UserID)
     if err != nil {
       return nil, err
     }
@@ -487,4 +454,24 @@ func readSpan(db *sql.DB, num int, offset int, id string ) ([]Span, error) {
     ret := []Span{ result }
     return ret, nil
   }
+}
+
+func UpdateSchedule(db *sql.DB, schedule *Schedule) (Schedule, error) {
+
+  return Schedule{}, nil
+}
+
+func UpdateUser(db *sql.DB, user *User) (User, error) {
+
+  return User{}, nil
+}
+
+func UpdateGroup(db *sql.DB, group *Group) (Group, error) {
+
+  return Group{}, nil
+}
+
+func UpdateSpan(db *sql.DB, span *Span) (Span, error) {
+
+  return Span{}, nil
 }
