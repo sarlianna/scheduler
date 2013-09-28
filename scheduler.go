@@ -11,7 +11,21 @@ import (
   "strconv"
 )
 
-/* planning:
+/* better planning:
+  
+  think of it in terms of REST.  it should be designed with this in mind.
+
+  Objects don't need references down at all ( unsure but go with it for now)
+  To get children you would specify an additional parameter, i.e.
+  api/user_id              will get a user with user_id, while
+  api/user_id/schedules    will get the same user's schedules.
+
+  when deleting, delete child objects with no other references also.
+  (Seems natural to delete a user's schedules when deleting a user, but not schedules assigned to a group when deleting that group, etc.)
+
+  may be changed in the future.
+
+/* old planning:
   so, internal library that returns objects for the app, handles db interaction.
   db info is in config.go
   one handler, you pass it a type.  Still unsure if this is the best architechture.
@@ -48,7 +62,8 @@ type Schedule struct {
 
   ID    string
   User  *User
-  Dates *[]Span 
+  //Dates []*Span 
+  //Group *Group
 }
 
 type User struct {
@@ -57,22 +72,23 @@ type User struct {
   Username  string 
   Password  string 
   Salt      string 
-  Schedules *[]Schedule
+  //Schedules []*Schedule
 }
 
 type Group struct {
 
   ID        string
-  Schedules *[]Schedule
+  //Schedules []*Schedule
   Title     string
   Desc      string
 }
 
 type Span struct {
 
-  ID    string
-  Start time.Time
-  End   time.Time
+  ID       string
+  Start    time.Time
+  End      time.Time
+  Schedule *Schedule
 }
 
 type GenManager struct {
@@ -108,8 +124,7 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
   switch otype {
 
     case TypeSchedule:
-      var user string 
-      var dates []string
+      var user, group string 
       switch args[0].(type) {
         case string:
           user = args[0].(string)
@@ -117,12 +132,12 @@ func (gm GenManager) Create( otype int, args...interface{} ) (interface{}, error
           return nil, errors.New("Invalid arguments to be passed to createSchedule.")
       }
       switch args[1].(type) {
-        case []string:
-          dates = args[1].([]string)
+        case string:
+          group = args[1].(string)
         default:
           return nil, errors.New("Invalid arguments to be passed to createSchedule.")
       }
-      return createSchedule( gm.db, user, dates )
+      return createSchedule( gm.db, user, group )
 
     case TypeUser:
       var username, pass, salt string
@@ -253,19 +268,17 @@ func (gm GenManager) Delete( otype int, id string) (error) {
   return nil
 }
 
-func createSchedule( db *sql.DB, user string, dates []string ) (Schedule, error) {
+func createSchedule( db *sql.DB, user string, group string) (Schedule, error) {
 
-  if dates != nil {
-    //seperate query?
-  }
   id := uuid.New()
-  var err error
-  if strings.EqualFold(user,"") {
-    _, err = db.Query("INSERT INTO schedules (schedule_id, user_id) VALUES (" + id + ", " + user + ")" )
-  } else {
-    _, err = db.Query("INSERT INTO schedules (schedule_id) VALUES (" + id + ")" )
+  var query string
+  if !strings.EqualFold(user,"") && !strings.EqualFold(group, "") {
+    query = "INSERT INTO schedules (schedule_id, user_id, group_id) VALUES (" + id + ", " + user + ", " + group +")"
+  } else if !strings.EqualFold(user, "") && strings.EqualFold(group, ""){
+    query = "INSERT INTO schedules (schedule_id) VALUES (" + id + ")" 
   }
 
+  _, err := db.Query(query)
   if err != nil {
     return Schedule{}, err
   }
@@ -280,13 +293,6 @@ func createSchedule( db *sql.DB, user string, dates []string ) (Schedule, error)
 func createUser( db *sql.DB,  user string, pass string, salt string,
                  schedules []string, groups []string )   (User, error) {
 
-  if schedules != nil {
-
-  }
-  if groups != nil {
-
-  }
-
   id := uuid.New()
 
   _, err := db.Exec("INSERT INTO users (username, password, salt) VALUES ( ?, ?, ?)", user, pass, salt)
@@ -294,14 +300,10 @@ func createUser( db *sql.DB,  user string, pass string, salt string,
     return User{}, err
   }
   
-  return User{ID: id, Username: user, Password: pass, Salt: salt}, nil //TODO: add Schedules
+  return User{ID: id, Username: user, Password: pass, Salt: salt}, nil 
 }
 
 func createGroup( db *sql.DB, title string, description string, schedules []string ) (Group, error) {
-
-  if schedules != nil {
-
-  }
 
   id := uuid.New()
 
@@ -310,7 +312,7 @@ func createGroup( db *sql.DB, title string, description string, schedules []stri
     return Group{}, err
   }
 
-  return Group{ID: id, Title:title, Desc: description}, nil //TODO: add Schedules
+  return Group{ID: id, Title:title, Desc: description}, nil
 }
 
 func createSpan( db *sql.DB,  start time.Time, end time.Time ) (Span, error) {
@@ -327,7 +329,7 @@ func createSpan( db *sql.DB,  start time.Time, end time.Time ) (Span, error) {
   */
   fmt.Println("Values: " + id + start.String() + end.String() )
   //_, err := stmt.Exec(id, start, end)
-  _, err := db.Exec("INSERT INTO spans (span_id , start_time , end_time) VALUES ('?' , ? , ?)", id, start, end )
+  _, err := db.Exec("INSERT INTO spans (span_id , start_time , end_time) VALUES (? , ? , ?)", id, start, end )
 
   if err != nil {
     return Span{}, err 
@@ -339,8 +341,9 @@ func createSpan( db *sql.DB,  start time.Time, end time.Time ) (Span, error) {
 func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, error) {
 
   if strings.EqualFold(id, "") {
-    rows, err := db.Query("SELECT a.schedule_id, a.user_id, b.span_id, b.start_time, b.end_time FROM schedules a, spans b OFFSET " +
-                            strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num) )
+    rows, err := db.Query("SELECT sch.schedule_id, sch.user_id, user.username, user.password, user.salt " + 
+                            "FROM schedules sch, users user WHERE user.user_id = sch.user_id " + 
+                            "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num) )
     if err != nil {
       return nil, err
     }
@@ -348,7 +351,10 @@ func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, erro
 
     ret := make([]Schedule, 1)
     for i := 0; rows.Next(); i++ {
-      //one loop isn't enough - we need to fill schedules, and for each schedule, fill every span.
+      scanerr := rows.Scan( &ret[i].ID, &ret[i].User.ID, &ret[i].User.Username, &ret[i].User.Password, &ret[i].User.Salt )
+      if scanerr != nil {
+        return nil, scanerr
+      }
     }
     
     return ret, nil
@@ -356,7 +362,19 @@ func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, erro
   } else {
 
     //get by id
+    result := Schedule{}
+    err := db.QueryRow("SELECT sche.schedule_id, sch.user_id, user.username, user.password, user.salt " + 
+                        "FROM spans WHERE sch.schedule_id=" + id + 
+                        " AND user.user_id = sch.user_id").Scan(&result.ID, &result.User.ID, &result.User.Username, 
+                          &result.User.Password, &result.User.Salt )
+    if err != nil {
+      return nil, err
+    }
+
+    ret := []Schedule{ result }
+    return ret, nil
   }
+  
 
   return nil, nil
 }
@@ -364,24 +382,36 @@ func readSchedule(db *sql.DB, num int, offset int, id string ) ([]Schedule, erro
 func readUser(db *sql.DB, num int, offset int, id string ) ([]User, error) {
 
   if strings.EqualFold(id, "") {
-    query :="SELECT user.user_id, user.username, user.password, user.salt, " +
-            "schedule.schedule_id, schedule.user_id, span.span_id, " +
-            "span.start_time, span.end_time " +
-            "FROM users user, schedules schedule, spans span " +
-            "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num)
-    rows, err := db.Query(query)
+    rows, err := db.Query("SELECT user_id, username, password, salt, FROM users user" +
+                          "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num))
+
     if err != nil {
       return nil, err
     }
 
-
     ret := make( []User, 1 )
     for i:=0; rows.Next(); i++ {
-      //
+      scanerr := rows.Scan( &ret[i].ID, &ret[i].Username, &ret[i].Password, &ret[i].Salt )
+      if scanerr != nil {
+        return nil, scanerr
+      }
     }
 
     return ret, nil
   } else {
+
+    result := User{}
+    err := db.QueryRow("SELECT user.user_id, user.username, user.password, user.salt, " +
+            "FROM users user" +
+            "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num)).Scan(&result.ID,
+            &result.Password, &result.Salt)
+    if err != nil {
+      
+      return nil, err
+    }
+
+    ret := []User { result }
+    return ret, nil
 
   }
 
@@ -391,24 +421,33 @@ func readUser(db *sql.DB, num int, offset int, id string ) ([]User, error) {
 func readGroup(db *sql.DB, num int, offset int, id string ) ([]Group, error) {
 
   if strings.EqualFold(id, "") {
-    query := "SELECT group.group_id, group.title, group.description, " +
-             "schedule.schedule_id, schedule.user_id, span.span_id, " +
-             "span.start_time, span.end_time " +
-             "FROM groups group, schedules schedule, spans span " +
-             "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num)
-    rows, err := db.Query(query)
+    rows, err := db.Query("SELECT group_id, title, description, FROM groups " +
+                           "OFFSET " + strconv.Itoa(offset) + " LIMIT " + strconv.Itoa(num))
     if err != nil {
       return nil, err
     }
 
     ret := make( []Group, 1 )
     for i:=0; rows.Next(); i++ {
-      //
+      scanerr := rows.Scan( &ret[i].ID, &ret[i].Title, &ret[i].Desc )
+      if scanerr != nil {
+        return nil, scanerr
+      }
     }
 
     return ret, nil
   } else {
 
+    result := Group {}
+    err := db.QueryRow("SELECT group_id, title, description, FROM groups " +
+                       "OFFSET " + strconv.Itoa(offset) + " LIMIT " + 
+                       strconv.Itoa(num)).Scan(&result.ID, &result.Title, &result.Desc)
+    if err != nil {
+      return nil, err
+    }
+
+    ret := []Group{ result }
+    return ret, nil
   }
  
 
